@@ -202,7 +202,7 @@ class AnnealedVAE(BaseVAE):
 class FactorVAE(BaseVAE):
   """FactorVAE model."""
 
-  def __init__(self, gamma=gin.REQUIRED):
+  def __init__(self, beta=gin.REQUIRED, gamma=gin.REQUIRED):
     """Creates a FactorVAE model.
 
     Implementing Eq. 2 of "Disentangling by Factorizing"
@@ -212,6 +212,7 @@ class FactorVAE(BaseVAE):
       gamma: Hyperparameter for the regularizer.
     """
     self.gamma = gamma
+    self.beta = beta
 
   def model_fn(self, features, labels, mode, params):
     """TPUEstimator compatible model function."""
@@ -231,7 +232,7 @@ class FactorVAE(BaseVAE):
         features, reconstructions)
     reconstruction_loss = tf.reduce_mean(per_sample_loss)
     kl_loss = compute_gaussian_kl(z_mean, z_logvar)
-    standard_vae_loss = tf.add(reconstruction_loss, kl_loss, name="VAE_loss")
+    standard_vae_loss = tf.add(reconstruction_loss, self.beta*kl_loss, name="VAE_loss")
     # tc = E[log(p_real)-log(p_fake)] = E[logit_real - logit_fake]
     tc_loss_per_sample = logits_z[:, 0] - logits_z[:, 1]
     tc_loss = tf.reduce_mean(tc_loss_per_sample, axis=0)
