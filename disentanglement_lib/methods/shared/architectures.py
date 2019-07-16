@@ -321,7 +321,7 @@ def fc_discriminator(input_tensor, is_training=True):
 
 
 @gin.configurable("fc_discriminator_sigmoid", whitelist=[])
-def fc_discriminator(input_tensor, is_training=True):
+def fc_discriminator_sigmoid(input_tensor, is_training=True):
     """Fully connected discriminator used in FactorVAE paper for all datasets.
 
     Based on Appendix A page 11 "Disentangling by Factorizing"

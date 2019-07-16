@@ -284,7 +284,7 @@ class FactorVAE(BaseVAE):
 
 
 @gin.configurable("factor_vae_sigmoid")
-class FactorVAE(BaseVAE):
+class FactorVAESigmoid(BaseVAE):
   """FactorVAE model."""
 
   def __init__(self, beta=gin.REQUIRED, gamma=gin.REQUIRED):
