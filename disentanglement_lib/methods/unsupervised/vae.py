@@ -283,6 +283,92 @@ class FactorVAE(BaseVAE):
       raise NotImplementedError("Eval mode not supported.")
 
 
+@gin.configurable("factor_vae_sigmoid")
+class FactorVAE(BaseVAE):
+  """FactorVAE model."""
+
+  def __init__(self, beta=gin.REQUIRED, gamma=gin.REQUIRED):
+    """Creates a FactorVAE model.
+
+    Implementing Eq. 2 of "Disentangling by Factorizing"
+    (https://arxiv.org/pdf/1802.05983).
+
+    Args:
+      gamma: Hyperparameter for the regularizer.
+    """
+    self.gamma = gamma
+    self.beta = beta
+
+  def model_fn(self, features, labels, mode, params):
+    """TPUEstimator compatible model function."""
+    del labels
+    is_training = (mode == tf.estimator.ModeKeys.TRAIN)
+    data_shape = features.get_shape().as_list()[1:]
+    z_mean, z_logvar = self.gaussian_encoder(features, is_training=is_training)
+    z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar)
+    z_shuffle = shuffle_codes(z_sampled)
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      probs_z = architectures.make_discriminator(
+          z_sampled, is_training=is_training)
+      probs_z_shuffle = architectures.make_discriminator(
+          z_shuffle, is_training=is_training)
+    reconstructions = self.decode(z_sampled, data_shape, is_training)
+    per_sample_loss = losses.make_reconstruction_loss(
+        features, reconstructions)
+    reconstruction_loss = tf.reduce_mean(per_sample_loss)
+    kl_loss = compute_gaussian_kl(z_mean, z_logvar)
+    standard_vae_loss = tf.add(reconstruction_loss, self.beta*kl_loss, name="VAE_loss")
+    # tc = E[log(p_real)-log(p_fake)] = E[logit_real - logit_fake]
+
+    tc_loss_per_sample = tf.log(probs_z) - tf.log(1 - probs_z)
+    tc_loss = tf.reduce_mean(tc_loss_per_sample, axis=0)
+    regularizer = kl_loss + self.gamma * tc_loss
+    factor_vae_loss = tf.add(
+        standard_vae_loss, self.gamma * tc_loss, name="factor_VAE_loss")
+    discr_loss = tf.add(
+        0.5 * tf.reduce_mean(tf.log(probs_z)),
+        0.5 * tf.reduce_mean(tf.log(1-probs_z_shuffle)),
+        name="discriminator_loss")
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      optimizer_vae = optimizers.make_vae_optimizer()
+      optimizer_discriminator = optimizers.make_discriminator_optimizer()
+      all_variables = tf.trainable_variables()
+      encoder_vars = [var for var in all_variables if "encoder" in var.name]
+      decoder_vars = [var for var in all_variables if "decoder" in var.name]
+      discriminator_vars = [var for var in all_variables \
+                            if "discriminator" in var.name]
+      update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+      train_op_vae = optimizer_vae.minimize(
+          loss=factor_vae_loss,
+          global_step=tf.train.get_global_step(),
+          var_list=encoder_vars + decoder_vars)
+      train_op_discr = optimizer_discriminator.minimize(
+          loss=-discr_loss,
+          global_step=tf.train.get_global_step(),
+          var_list=discriminator_vars)
+      train_op = tf.group(train_op_vae, train_op_discr, update_ops)
+      tf.summary.scalar("reconstruction_loss", reconstruction_loss)
+      logging_hook = tf.train.LoggingTensorHook({
+          "loss": factor_vae_loss,
+          "reconstruction_loss": reconstruction_loss
+      },
+                                                every_n_iter=50)
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          mode=mode,
+          loss=factor_vae_loss,
+          train_op=train_op,
+          training_hooks=[logging_hook])
+    elif mode == tf.estimator.ModeKeys.EVAL:
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          mode=mode,
+          loss=factor_vae_loss,
+          eval_metrics=(make_metric_fn("reconstruction_loss", "regularizer",
+                                       "kl_loss"),
+                        [reconstruction_loss, regularizer, kl_loss]))
+    else:
+      raise NotImplementedError("Eval mode not supported.")
+
+
 def compute_covariance_z_mean(z_mean):
   """Computes the covariance of z_mean.
 

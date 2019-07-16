@@ -315,9 +315,40 @@ def fc_discriminator(input_tensor, is_training=True):
   d5 = tf.layers.dense(d4, 1000, activation=tf.nn.leaky_relu, name="d5")
   d6 = tf.layers.dense(d5, 1000, activation=tf.nn.leaky_relu, name="d6")
   logits = tf.layers.dense(d6, 2, activation=None, name="logits")
+
   probs = tf.nn.softmax(logits)
   return logits, probs
 
+
+@gin.configurable("fc_discriminator_sigmoid", whitelist=[])
+def fc_discriminator(input_tensor, is_training=True):
+    """Fully connected discriminator used in FactorVAE paper for all datasets.
+
+    Based on Appendix A page 11 "Disentangling by Factorizing"
+    (https://arxiv.org/pdf/1802.05983.pdf)
+
+    Args:
+      input_tensor: Input tensor of shape (None, num_latents) to build
+        discriminator on.
+      is_training: Whether or not the graph is built for training (UNUSED).
+
+    Returns:
+      logits: Output tensor of shape (batch_size, 2) with logits from
+        discriminator.
+      probs: Output tensor of shape (batch_size, 2) with probabilities from
+        discriminator.
+    """
+    del is_training
+    flattened = tf.layers.flatten(input_tensor)
+    d1 = tf.layers.dense(flattened, 1000, activation=tf.nn.leaky_relu, name="d1")
+    d2 = tf.layers.dense(d1, 1000, activation=tf.nn.leaky_relu, name="d2")
+    d3 = tf.layers.dense(d2, 1000, activation=tf.nn.leaky_relu, name="d3")
+    d4 = tf.layers.dense(d3, 1000, activation=tf.nn.leaky_relu, name="d4")
+    d5 = tf.layers.dense(d4, 1000, activation=tf.nn.leaky_relu, name="d5")
+    d6 = tf.layers.dense(d5, 1000, activation=tf.nn.leaky_relu, name="d6")
+    logits = tf.layers.dense(d6, 1, activation=None, name="logits")
+    probs=tf.nn.sigmoid(logits)
+    return probs
 
 @gin.configurable("test_encoder", whitelist=["num_latent"])
 def test_encoder(input_tensor, num_latent, is_training):
